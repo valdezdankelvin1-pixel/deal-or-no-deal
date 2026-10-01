@@ -1,0 +1,6 @@
+{
+  "name": "Golden Vault - High Stakes Casino Bonus",
+  "description": "VIP high-stakes Deal or No Deal briefcase game with live banker offers, provably fair mechanics, and 1,000x jackpot thrills.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
