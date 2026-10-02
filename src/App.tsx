@@ -16,14 +16,24 @@ import { Briefcase, GamePhase, ProvablyFairData } from './types/game';
 import { soundManager } from './utils/audio';
 import { generateSeed, sha256, shuffleWithSeeds } from './utils/provablyFair';
 
-// 25 Multipliers for 25 Briefcases: Exactly 6 HIGH, and the rest 0.1, 0.5, 10x
+// 35 Multipliers for 35 Briefcases:
+// 20 maleta na 0.3x
+// 10 maleta na 0.2x
+// 3 maleta na 10x
+// 1 maleta na 100x
+// 1 maleta na 1,000x
 const BASE_MULTIPLIERS = [
-  // 6 High Multipliers
-  50, 100, 200, 300, 500, 1000,
-  // 19 Standard Multipliers (0.1, 0.5, 10x)
-  0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, // 7 of 0.1x
-  0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, // 7 of 0.5x
-  10, 10, 10, 10, 10,                 // 5 of 10x
+  // 20 maleta na 0.3x
+  0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
+  0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
+  // 10 maleta na 0.2x
+  0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2,
+  // 3 maleta na 10x
+  10, 10, 10,
+  // 1 maleta na 100x
+  100,
+  // 1 maleta na 1,000x
+  1000,
 ];
 
 const STAGE_BG_URL =
@@ -53,7 +63,7 @@ export default function App() {
       BASE_MULTIPLIERS,
       `vault_initial:${Date.now()}`
     );
-    return Array.from({ length: 25 }, (_, i) => ({
+    return Array.from({ length: BASE_MULTIPLIERS.length }, (_, i) => ({
       id: i + 1,
       multiplier: shuffledMultipliers[i],
       isOpen: false,
@@ -121,11 +131,14 @@ export default function App() {
       `${sSeed}:${provablyFair.clientSeed}:${newNonce}`
     );
 
-    const freshBriefcases: Briefcase[] = Array.from({ length: 25 }, (_, i) => ({
-      id: i + 1,
-      multiplier: shuffledMultipliers[i],
-      isOpen: false,
-    }));
+    const freshBriefcases: Briefcase[] = Array.from(
+      { length: BASE_MULTIPLIERS.length },
+      (_, i) => ({
+        id: i + 1,
+        multiplier: shuffledMultipliers[i],
+        isOpen: false,
+      })
+    );
 
     setProvablyFair((prev) => ({
       ...prev,
@@ -144,12 +157,25 @@ export default function App() {
     setGameOverModal({ isOpen: false, winType: 'DEAL', payout: 0 });
   }, [provablyFair.clientSeed, provablyFair.nonce]);
 
-  const MAX_BOXES_PER_GAME = 6;
+  // Player Mode Options:
+  // 6 maleta -> Min bet ₱500
+  // 3 maleta -> Min bet ₱200
+  // 2 maleta -> Min bet ₱100
+  const [maxBoxesPerGame, setMaxBoxesPerGame] = useState<number>(6);
+
+  const handleSelectMaxBoxes = useCallback((boxes: number) => {
+    soundManager.playClick();
+    setMaxBoxesPerGame(boxes);
+    if (boxes === 2) setBet(100);
+    else if (boxes === 3) setBet(200);
+    else if (boxes === 6) setBet(500);
+  }, []);
+
   const totalOpenedCount = useMemo(() => {
     return briefcases.filter((b) => b.isOpen).length;
   }, [briefcases]);
 
-  const remainingQuota = Math.max(0, MAX_BOXES_PER_GAME - totalOpenedCount);
+  const remainingQuota = Math.max(0, maxBoxesPerGame - totalOpenedCount);
 
   // Execute opening of selected boxes
   const executeBatchOpen = useCallback(
@@ -159,7 +185,7 @@ export default function App() {
       const totalBatchCost = boxesToOpen.length * bet;
       if (balance < totalBatchCost) {
         alert(
-          `Kulang ang iyong balance (Kailangan: ₱${totalBatchCost.toLocaleString()} para sa ${boxesToOpen.length} maleta). Pindutin ang Total Balance sa itaas upang mag-reload ng chips.`
+          `Insufficient balance (Required: ₱${totalBatchCost.toLocaleString()} for ${boxesToOpen.length} ${boxesToOpen.length === 1 ? 'case' : 'cases'}). Click Total Balance at the top to reload chips.`
         );
         return;
       }
@@ -175,7 +201,7 @@ export default function App() {
       setTimeout(() => {
         const openingSet = new Set(boxesToOpen);
 
-        // Calculate actual prize won: bet * multiplier (e.g. 1000 * 0.8 = 800)
+        // Calculate actual prize won: bet * multiplier
         const batchPrizesWon = boxesToOpen.reduce((sum, id) => {
           const b = briefcases.find((box) => box.id === id);
           return sum + (b ? Math.round(bet * b.multiplier) : 0);
@@ -184,9 +210,9 @@ export default function App() {
         // Award the won prize directly to player's balance!
         setBalance((prev) => prev + batchPrizesWon);
 
-        // Check if any high value was revealed (>= 50x)
+        // Check if any high value was revealed (>= 10x)
         const anyHigh = briefcases.some(
-          (b) => openingSet.has(b.id) && b.multiplier >= 50
+          (b) => openingSet.has(b.id) && b.multiplier >= 10
         );
 
         if (batchPrizesWon >= totalBatchCost) {
@@ -216,8 +242,8 @@ export default function App() {
 
         const newOpenedCount = updatedBriefcases.filter((b) => b.isOpen).length;
 
-        // If 6 boxes reached (Max 6 boxes per game), finish round and celebrate!
-        if (newOpenedCount >= MAX_BOXES_PER_GAME) {
+        // If max boxes reached for active mode (2, 3, or 6 boxes), finish round and celebrate!
+        if (newOpenedCount >= maxBoxesPerGame) {
           const finalTotalWon = updatedBriefcases
             .filter((b) => b.isOpen)
             .reduce((sum, b) => sum + Math.round(bet * b.multiplier), 0);
@@ -236,6 +262,7 @@ export default function App() {
       balance,
       bet,
       briefcases,
+      maxBoxesPerGame,
     ]
   );
 
@@ -325,11 +352,11 @@ export default function App() {
         {/* Top Casino Header */}
         <Header
           balance={balance}
-          bet={bet}
-          onBetChange={(newBet) => setBet(newBet)}
           onOpenRules={() => setShowRulesModal(true)}
           onAddFunds={(amt) => setBalance((prev) => prev + amt)}
-          isGameActive={false}
+          isGameActive={totalOpenedCount > 0 && phase === 'PLAYING'}
+          maxBoxesPerGame={maxBoxesPerGame}
+          onSelectMaxBoxes={handleSelectMaxBoxes}
         />
 
         {/* Total Winnings 3D Marquee Sign (Replaced Banker Live Offer) */}
@@ -340,7 +367,7 @@ export default function App() {
           selectedCount={selectedBoxIds.size}
           isOpeningBatch={isOpeningBatch}
           totalOpenedCount={totalOpenedCount}
-          maxBoxesPerGame={MAX_BOXES_PER_GAME}
+          maxBoxesPerGame={maxBoxesPerGame}
         />
 
         {/* Live Box Prize Won Toast */}
@@ -352,7 +379,7 @@ export default function App() {
               </div>
               <div className="flex flex-col leading-tight">
                 <span className="text-[9px] uppercase font-black text-emerald-300 tracking-wide">
-                  Panalo sa {winToast.boxesCount} Box
+                  Won from {winToast.boxesCount} {winToast.boxesCount === 1 ? 'Case' : 'Cases'}
                 </span>
                 <span className="text-xs font-black text-white font-mono">
                   +₱{winToast.amount.toLocaleString()} ({bet > 0 ? (winToast.amount / (winToast.boxesCount * bet)).toFixed(1) : 1}x)
@@ -385,7 +412,7 @@ export default function App() {
           isOpeningBatch={isOpeningBatch}
           recentlyRevealedIds={recentlyRevealedIds}
           totalOpenedCount={totalOpenedCount}
-          maxBoxesPerGame={MAX_BOXES_PER_GAME}
+          maxBoxesPerGame={maxBoxesPerGame}
         />
 
         {/* Action Footer: CLAIM and OPEN BOX Buttons */}
@@ -434,6 +461,7 @@ export default function App() {
           winType={gameOverModal.winType}
           payout={totalWon}
           bet={totalBetInvested}
+          maxBoxesPerGame={maxBoxesPerGame}
         />
       </main>
     </div>
